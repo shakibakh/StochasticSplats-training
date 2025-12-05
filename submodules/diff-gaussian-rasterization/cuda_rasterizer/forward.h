@@ -60,6 +60,96 @@ namespace FORWARD
 		uint32_t* n_contrib,
 		const float* bg_color,
 		float* out_color);
+
+	
+	void preprocess_stochastic_popfree(
+		int block_x, int block_y,
+		int P, int D, int M,
+		const float* means3D,
+		const glm::vec3* scales,
+		const float scale_modifier,
+		const glm::vec4* rotations,
+		const float* opacities,
+		const float* shs,
+		bool* clamped,
+		const float* cov3D_precomp,
+		const float* colors_precomp,
+		const float* viewmatrix,
+		const float* fullprojmatrix,
+		const float* invprojmatrix,
+		const glm::vec3* cam_pos,
+		const int W, int H,
+		const float focal_x, float focal_y,
+		const float tan_fovx, float tan_fovy,
+		int* radii,
+		float2* means2D,
+		float4* depths,
+		uint4* corners,
+		float* cov3Ds,
+		float* rgb,
+		float4* conic_opacity,
+		const dim3 grid,
+		uint32_t* tiles_touched,
+		bool prefiltered);
+
+	void preprocess_stochastic(
+		int block_x, int block_y,
+		int P, int D, int M,
+		const float* means3D,
+		const glm::vec3* scales,
+		const float scale_modifier,
+		const glm::vec4* rotations,
+		const float* opacities,
+		const float* shs,
+		bool* clamped,
+		const float* cov3D_precomp,
+		const float* colors_precomp,
+		const float* viewmatrix,
+		const float* fullprojmatrix,
+		const float* invprojmatrix,
+		const glm::vec3* cam_pos,
+		const int W, int H,
+		const float focal_x, float focal_y,
+		const float tan_fovx, float tan_fovy,
+		int* radii,
+		float2* means2D,
+		float* depths,
+		float* cov3Ds,
+		float* rgb,
+		float4* conic_opacity,
+		const dim3 grid,
+		uint32_t* tiles_touched,
+		bool prefiltered);
+
+	void render_stochastic_popfree(
+		const dim3 grid, dim3 block,
+		const uint2* ranges,
+		const uint32_t* point_list,
+		int W, int H, int num_samples,
+		const float2* means2D,
+		const float* colors,
+		const float4* conic_opacity,
+		const float4* depths,
+		const uint4* corners,
+		const float* cov3d,
+		const int rand_seed,
+		const float* bg_color,
+		float* out_color);
+
+
+	void render_stochastic(
+		const dim3 grid, dim3 block,
+		const uint2* ranges,
+		const uint32_t* point_list,
+		int W, int H, int num_samples,
+		const float2* means2D,
+		const float* colors,
+		const float4* conic_opacity,
+		const float* depths,
+		const float* cov3d,
+		const int rand_seed,
+		const float* bg_color,
+		float* out_color);
 }
 
 

@@ -60,6 +60,41 @@ namespace BACKWARD
 		float* dL_dsh,
 		glm::vec3* dL_dscale,
 		glm::vec4* dL_drot);
+
+	void render_stochastic_popfree(
+		const dim3 grid, dim3 block,
+		const uint2* ranges,
+		const uint32_t* point_list,
+		int W, int H, 
+		int rand_seed, int num_samples,
+		const float* bg_color,
+		const float2* means2D,
+		const float4* conic_opacity,
+		const float* colors,
+		const float4* depths,
+		const uint4* corners,
+		const float* dL_dpixels,
+		float3* dL_dmean2D,
+		float4* dL_dconic2D,
+		float* dL_dopacity,
+		float* dL_dcolors);
+
+	void render_stochastic(
+		const dim3 grid, dim3 block,
+		const uint2* ranges,
+		const uint32_t* point_list,
+		int W, int H, 
+		int rand_seed, int num_samples,
+		const float* bg_color,
+		const float2* means2D,
+		const float4* conic_opacity,
+		const float* colors,
+		const float* depths,
+		const float* dL_dpixels,
+		float3* dL_dmean2D,
+		float4* dL_dconic2D,
+		float* dL_dopacity,
+		float* dL_dcolors);
 }
 
 #endif

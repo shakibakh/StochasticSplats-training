@@ -13,6 +13,7 @@
 
 #include <iostream>
 #include <vector>
+#include <cstdint>
 #include "rasterizer.h"
 #include <cuda_runtime_api.h>
 
@@ -41,6 +42,24 @@ namespace CudaRasterizer
 		uint32_t* tiles_touched;
 
 		static GeometryState fromChunk(char*& chunk, size_t P);
+	};
+
+	struct GeometryStateStochastic
+	{
+		size_t scan_size;
+		float4* depths;
+		char* scanning_space;
+		bool* clamped;
+		int* internal_radii;
+		float2* means2D;
+		float* cov3D;
+		float4* conic_opacity;
+		float* rgb;
+		uint32_t* point_offsets;
+		uint32_t* tiles_touched;
+		uint4* corners;
+
+		static GeometryStateStochastic fromChunk(char*& chunk, size_t P);
 	};
 
 	struct ImageState

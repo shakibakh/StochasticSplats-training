@@ -14,8 +14,12 @@
 
 #include "config.h"
 #include "stdio.h"
+#include <cuda_fp16.h>
+#define GLM_FORCE_CUDA
+#include <glm/glm.hpp>
 
 #define BLOCK_SIZE (BLOCK_X * BLOCK_Y)
+#define BLOCK_SIZE_L (BLOCK_X_L * BLOCK_Y_L)
 #define NUM_WARPS (BLOCK_SIZE/32)
 
 // Spherical harmonics coefficients
@@ -43,6 +47,33 @@ __forceinline__ __device__ float ndc2Pix(float v, int S)
 	return ((v + 1.0) * S - 1.0) * 0.5;
 }
 
+__forceinline__ __device__ float pix2ndc(float pix, int S) 
+{
+    return ((pix * 2.0f + 1.0f) / S) - 1.0f;
+}
+
+__forceinline__ __device__ uint32_t sl(uint32_t x, int n)
+{
+	return x << n;
+}
+
+__forceinline__ __device__ uint32_t sr(uint32_t x, int n)
+{
+	return x >> n;
+}
+
+__forceinline__ __device__ uint32_t sample_tea_32(uint32_t v0, uint32_t v1, int rounds = 32)
+{
+	uint32_t sum = 0;
+	for (int i = 0; i < rounds; ++i)
+	{
+		sum += 0x9e3779b9;
+		v0 += (sl(v1, 4) + 0xa341316c) ^ (v1 + sum) ^ (sr(v1, 5) + 0xc8013ea4);
+		v1 += (sl(v0, 4) + 0xad90777d) ^ (v0 + sum) ^ (sr(v0, 5) + 0x7e95761e);
+	}
+	return v0;
+}
+
 __forceinline__ __device__ void getRect(const float2 p, int max_radius, uint2& rect_min, uint2& rect_max, dim3 grid)
 {
 	rect_min = {
@@ -53,6 +84,101 @@ __forceinline__ __device__ void getRect(const float2 p, int max_radius, uint2& r
 		min(grid.x, max((int)0, (int)((p.x + max_radius + BLOCK_X - 1) / BLOCK_X))),
 		min(grid.y, max((int)0, (int)((p.y + max_radius + BLOCK_Y - 1) / BLOCK_Y)))
 	};
+}
+
+__forceinline__ __device__ void getRectAABB(const float2 p, int max_radius_x, int max_radius_y, uint2& rect_min, uint2& rect_max, dim3 grid, int block_x, int block_y)
+{
+	rect_min = {
+		min(grid.x, max((int)0, (int)((p.x - max_radius_x) / block_x))),
+		min(grid.y, max((int)0, (int)((p.y - max_radius_y) / block_y)))
+	};
+	rect_max = {
+		min(grid.x, max((int)0, (int)((p.x + max_radius_x + block_x - 1) / block_x))),
+		min(grid.y, max((int)0, (int)((p.y + max_radius_y + block_y - 1) / block_y)))
+	};
+}
+
+__forceinline__ __device__ void getRectAll(const float2 p, int max_radius_x, int max_radius_y, uint2& rect_min, uint2& rect_max, int W, int H)
+{
+	rect_min = {
+		min((uint)W, max((int)0, (int)((p.x - max_radius_x)))),
+		min((uint)H, max((int)0, (int)((p.y - max_radius_y))))
+	};
+	rect_max = {
+		min((uint)W, max((int)0, (int)((p.x + max_radius_x)))),
+		min((uint)H, max((int)0, (int)((p.y + max_radius_y))))
+	};
+}
+
+__forceinline__ __device__ float bilinearInterpolateKernel(
+    const uint x_star,
+    const uint y_star,
+    const uint4 corners,
+    const float4 zs
+)
+{
+	float denomX = 1.0f / (corners.y - corners.x);
+    float denomY = 1.0f / (corners.w - corners.z);
+
+    float u = (x_star - corners.x) * denomX;
+    float v = (y_star - corners.z) * denomY;
+
+	float z_val =
+		(1.0f - u) * (1.0f - v) * zs.x +
+			u      * (1.0f - v) * zs.y +
+			u      *       v    * zs.w +
+		(1.0f - u) *       v    * zs.z;
+
+	return z_val;
+}
+
+__forceinline__ __device__ glm::vec4 approximatePlane(glm::vec3 mean, glm::mat3 inv_vcov3d){
+    glm::vec3 gradient = inv_vcov3d * mean;
+    float d = -dot(gradient, mean);
+    return glm::vec4(gradient, d);
+}
+
+__forceinline__ __device__ glm::mat3 getViewCov3DInverse(const float *viewmatrix, const float *cov3D)
+{
+    // Extract the 3×3 portion "W" from the view matrix:
+    glm::mat3 W = glm::mat3(
+        viewmatrix[0], viewmatrix[4], viewmatrix[8],
+        viewmatrix[1], viewmatrix[5], viewmatrix[9],
+        viewmatrix[2], viewmatrix[6], viewmatrix[10]
+    );
+
+    // Rebuild the 3×3 covariance from the 6 unique elements:
+    glm::mat3 Vrk = glm::mat3(
+        cov3D[0], cov3D[1], cov3D[2],
+        cov3D[1], cov3D[3], cov3D[4],
+        cov3D[2], cov3D[4], cov3D[5]
+    );
+    glm::mat3 invVrk = glm::inverse(Vrk);
+    glm::mat3 invCov = W * invVrk * glm::transpose(W);
+
+    return invCov;
+}
+
+
+__device__ __forceinline__ float4 mat4_mul_vec4(const float* M, const float4 v)
+{
+    // M is assumed row-major, 16 elements.
+    // If your matrix is column-major, transpose indexing accordingly.
+    return make_float4(
+        M[0] * v.x + M[4] * v.y + M[8]  * v.z + M[12] * v.w,
+        M[1] * v.x + M[5] * v.y + M[9]  * v.z + M[13] * v.w,
+        M[2] * v.x + M[6] * v.y + M[10] * v.z + M[14] * v.w,
+        M[3] * v.x + M[7] * v.y + M[11] * v.z + M[15] * v.w
+    );
+}
+
+__device__ __forceinline__ float fixDenominator(float denom)
+{
+    float eps = 1e-6f;
+    if (fabsf(denom) < eps) {
+        eps = (denom < 0.0f) ? -eps : eps;
+    }
+    return denom + eps;
 }
 
 __forceinline__ __device__ float3 transformPoint4x3(const float3& p, const float* matrix)
